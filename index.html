@@ -69,41 +69,111 @@
         const yintInput = document.getElementById('yintercept');
         const canvas = document.getElementById('graph');
         const ctx = canvas.getContext('2d');
+        // Infinite draggable canvas logic
+        let panX = 0; // in graph units
+        let panY = 0; // in graph units
+        let dragging = false;
+        let lastMouse = {x: 0, y: 0};
+        let scale = 25; // px per graph unit
         function drawGraph() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.strokeStyle = '#888';
-            ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(0, canvas.height/2); ctx.lineTo(canvas.width, canvas.height/2); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(canvas.width/2, 0); ctx.lineTo(canvas.width/2, canvas.height); ctx.stroke();
             const m = parseFloat(slopeInput.value);
             const b = parseFloat(yintInput.value);
-            const xMin = -10, xMax = 10, yMin = -10, yMax = 10;
-            function toCanvasX(x) { return (x - xMin) / (xMax - xMin) * canvas.width; }
-            function toCanvasY(y) { return canvas.height - (y - yMin) / (yMax - yMin) * canvas.height; }
+            // Center of canvas in graph units
+            const centerX = panX;
+            const centerY = panY;
+            // Functions to convert between graph and canvas coordinates
+            function toCanvasX(x) { return canvas.width/2 + (x - centerX) * scale; }
+            function toCanvasY(y) { return canvas.height/2 - (y - centerY) * scale; }
+            function toGraphX(px) { return centerX + (px - canvas.width/2) / scale; }
+            function toGraphY(py) { return centerY - (py - canvas.height/2) / scale; }
+
+            // Draw grid lines
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 1;
+            let gridStep = 1;
+            let xStart = Math.floor(centerX - canvas.width/(2*scale)) - 1;
+            let xEnd = Math.ceil(centerX + canvas.width/(2*scale)) + 1;
+            let yStart = Math.floor(centerY - canvas.height/(2*scale)) - 1;
+            let yEnd = Math.ceil(centerY + canvas.height/(2*scale)) + 1;
+            for (let gx = xStart; gx <= xEnd; gx++) {
+                let px = toCanvasX(gx);
+                ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, canvas.height); ctx.stroke();
+            }
+            for (let gy = yStart; gy <= yEnd; gy++) {
+                let py = toCanvasY(gy);
+                ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(canvas.width, py); ctx.stroke();
+            }
+            // Draw axes
+            ctx.strokeStyle = '#888';
+            ctx.lineWidth = 2;
+            // y-axis
+            let yAxisX = toCanvasX(0);
+            ctx.beginPath(); ctx.moveTo(yAxisX, 0); ctx.lineTo(yAxisX, canvas.height); ctx.stroke();
+            // x-axis
+            let xAxisY = toCanvasY(0);
+            ctx.beginPath(); ctx.moveTo(0, xAxisY); ctx.lineTo(canvas.width, xAxisY); ctx.stroke();
+
+            // Draw the line y = mx + b
             ctx.strokeStyle = '#0074D9'; ctx.lineWidth = 2; ctx.beginPath(); let first = true;
             for (let px = 0; px <= canvas.width; px++) {
-                let x = xMin + (xMax - xMin) * (px / canvas.width);
+                let x = toGraphX(px);
                 let y = m * x + b;
-                if (y < yMin || y > yMax) continue;
                 let py = toCanvasY(y);
                 if (first) { ctx.moveTo(px, py); first = false; } else { ctx.lineTo(px, py); }
             }
             ctx.stroke();
+
+            // Draw ticks and labels
             ctx.fillStyle = '#444'; ctx.font = '12px Arial';
-            for (let i = xMin; i <= xMax; i++) {
-                let x = toCanvasX(i);
-                ctx.beginPath(); ctx.moveTo(x, canvas.height/2 - 5); ctx.lineTo(x, canvas.height/2 + 5); ctx.stroke();
-                if (i !== 0) ctx.fillText(i, x-8, canvas.height/2 + 18);
+            for (let gx = xStart; gx <= xEnd; gx++) {
+                let px = toCanvasX(gx);
+                ctx.beginPath(); ctx.moveTo(px, xAxisY - 5); ctx.lineTo(px, xAxisY + 5); ctx.stroke();
+                if (gx !== 0) ctx.fillText(gx, px-8, xAxisY + 18);
             }
-            for (let i = yMin; i <= yMax; i++) {
-                let y = toCanvasY(i);
-                ctx.beginPath(); ctx.moveTo(canvas.width/2 - 5, y); ctx.lineTo(canvas.width/2 + 5, y); ctx.stroke();
-                if (i !== 0) ctx.fillText(i, canvas.width/2 + 8, y+4);
+            for (let gy = yStart; gy <= yEnd; gy++) {
+                let py = toCanvasY(gy);
+                ctx.beginPath(); ctx.moveTo(yAxisX - 5, py); ctx.lineTo(yAxisX + 5, py); ctx.stroke();
+                if (gy !== 0) ctx.fillText(gy, yAxisX + 8, py+4);
             }
         }
+
         slopeInput.addEventListener('input', drawGraph);
         yintInput.addEventListener('input', drawGraph);
         drawGraph();
+
+        // Dragging logic
+        canvas.addEventListener('mousedown', function(e) {
+            dragging = true;
+            lastMouse.x = e.clientX;
+            lastMouse.y = e.clientY;
+        });
+        window.addEventListener('mousemove', function(e) {
+            if (!dragging) return;
+            let dx = e.clientX - lastMouse.x;
+            let dy = e.clientY - lastMouse.y;
+            panX -= dx / scale;
+            panY += dy / scale;
+            lastMouse.x = e.clientX;
+            lastMouse.y = e.clientY;
+            drawGraph();
+        });
+        window.addEventListener('mouseup', function() { dragging = false; });
+
+        // Optional: scroll to zoom
+        canvas.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            let mouseX = e.offsetX;
+            let mouseY = e.offsetY;
+            let graphX = panX + (mouseX - canvas.width/2) / scale;
+            let graphY = panY - (mouseY - canvas.height/2) / scale;
+            let zoom = e.deltaY < 0 ? 1.1 : 0.9;
+            scale *= zoom;
+            // Keep the point under the mouse stationary
+            panX = graphX - (mouseX - canvas.width/2) / scale;
+            panY = graphY + (mouseY - canvas.height/2) / scale;
+            drawGraph();
+        }, { passive: false });
 
         // 90s hacker terminal logic
         const terminal = document.getElementById('hacker-terminal');
